@@ -60,12 +60,21 @@ Flags:
 	-installsuffix suffix
 		Look for packages in $GOROOT/pkg/$GOOS_$GOARCH_suffix
 		instead of $GOROOT/pkg/$GOOS_$GOARCH.
+	-l
+		Disable inlining.
 	-largemodel
-		Generated code that assumes a large memory model.
+		Generate code that assumes a large memory model.
+	-linkobj file
+		Write linker-specific object to file and compiler-specific
+		object to usual output file (as specified by -o).
+		Without this flag, the -o output is a combination of both
+		linker and compiler input.
 	-memprofile file
 		Write memory profile for the compilation to file.
 	-memprofilerate rate
 		Set runtime.MemProfileRate for the compilation to rate.
+	-msan
+		Insert calls to C/C++ memory sanitizer.
 	-nolocalimports
 		Disallow local (relative) imports.
 	-o file
@@ -77,6 +86,8 @@ Flags:
 		Write a package (archive) file rather than an object file
 	-race
 		Compile with race detector enabled.
+	-trimpath prefix
+		Remove prefix from recorded source file paths.
 	-u
 		Disallow importing packages not marked as safe; implies -nolocalimports.
 
@@ -107,7 +118,7 @@ The //line directive is an historical special case; all other directives are of 
 The //go:noescape directive specifies that the next declaration in the file, which
 must be a func without a body (meaning that it has an implementation not written
 in Go) does not allow any of the pointers passed as arguments to escape into the
-heap or into the values returned from the function. This information can be used as
+heap or into the values returned from the function. This information can be used
 during the compiler's escape analysis of Go code calling the function.
 
 	//go:nosplit
@@ -119,7 +130,7 @@ preempted.
 
 	//go:linkname localname importpath.name
 
-The //go:linkname directive instructs the compiler to use ``importpath.name' as the
+The //go:linkname directive instructs the compiler to use ``importpath.name'' as the
 object file symbol name for the variable or function declared as ``localname'' in the
 source code. Because this directive can subvert the type system and package
 modularity, it is only enabled in files that have imported "unsafe".

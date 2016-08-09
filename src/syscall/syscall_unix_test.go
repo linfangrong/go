@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"internal/testenv"
+	"io"
 	"io/ioutil"
 	"net"
 	"os"
@@ -217,7 +218,7 @@ func passFDChild() {
 	defer os.Exit(0)
 
 	// Look for our fd. It should be fd 3, but we work around an fd leak
-	// bug here (http://golang.org/issue/2603) to let it be elsewhere.
+	// bug here (https://golang.org/issue/2603) to let it be elsewhere.
 	var uc *net.UnixConn
 	for fd := uintptr(3); fd <= 10; fd++ {
 		f := os.NewFile(fd, "unix-conn")
@@ -244,7 +245,7 @@ func passFDChild() {
 	}
 
 	f.Write([]byte("Hello from child process!\n"))
-	f.Seek(0, 0)
+	f.Seek(0, io.SeekStart)
 
 	rights := syscall.UnixRights(int(f.Fd()))
 	dummyByte := []byte("x")
@@ -344,7 +345,7 @@ func TestRlimit(t *testing.T) {
 }
 
 func TestSeekFailure(t *testing.T) {
-	_, err := syscall.Seek(-1, 0, 0)
+	_, err := syscall.Seek(-1, 0, io.SeekStart)
 	if err == nil {
 		t.Fatalf("Seek(-1, 0, 0) did not fail")
 	}

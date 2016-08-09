@@ -1,4 +1,4 @@
-// Copyright 2010 The Go Authors.  All rights reserved.
+// Copyright 2010 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/url"
 	"reflect"
 	"strings"
@@ -45,10 +46,9 @@ var reqTests = []reqTest{
 		&Request{
 			Method: "GET",
 			URL: &url.URL{
-				Scheme:  "http",
-				Host:    "www.techcrunch.com",
-				Path:    "/",
-				RawPath: "/",
+				Scheme: "http",
+				Host:   "www.techcrunch.com",
+				Path:   "/",
 			},
 			Proto:      "HTTP/1.1",
 			ProtoMajor: 1,
@@ -83,8 +83,7 @@ var reqTests = []reqTest{
 		&Request{
 			Method: "GET",
 			URL: &url.URL{
-				Path:    "/",
-				RawPath: "/",
+				Path: "/",
 			},
 			Proto:         "HTTP/1.1",
 			ProtoMajor:    1,
@@ -110,8 +109,7 @@ var reqTests = []reqTest{
 		&Request{
 			Method: "GET",
 			URL: &url.URL{
-				Path:    "//user@host/is/actually/a/path/",
-				RawPath: "//user@host/is/actually/a/path/",
+				Path: "//user@host/is/actually/a/path/",
 			},
 			Proto:         "HTTP/1.1",
 			ProtoMajor:    1,
@@ -161,8 +159,7 @@ var reqTests = []reqTest{
 		&Request{
 			Method: "POST",
 			URL: &url.URL{
-				Path:    "/",
-				RawPath: "/",
+				Path: "/",
 			},
 			TransferEncoding: []string{"chunked"},
 			Proto:            "HTTP/1.1",
@@ -178,6 +175,36 @@ var reqTests = []reqTest{
 		Header{
 			"Trailer-Key": {"Trailer-Value"},
 		},
+		noError,
+	},
+
+	// Tests chunked body and a bogus Content-Length which should be deleted.
+	{
+		"POST / HTTP/1.1\r\n" +
+			"Host: foo.com\r\n" +
+			"Transfer-Encoding: chunked\r\n" +
+			"Content-Length: 9999\r\n\r\n" + // to be removed.
+			"3\r\nfoo\r\n" +
+			"3\r\nbar\r\n" +
+			"0\r\n" +
+			"\r\n",
+		&Request{
+			Method: "POST",
+			URL: &url.URL{
+				Path: "/",
+			},
+			TransferEncoding: []string{"chunked"},
+			Proto:            "HTTP/1.1",
+			ProtoMajor:       1,
+			ProtoMinor:       1,
+			Header:           Header{},
+			ContentLength:    -1,
+			Host:             "foo.com",
+			RequestURI:       "/",
+		},
+
+		"foobar",
+		noTrailer,
 		noError,
 	},
 
@@ -236,8 +263,7 @@ var reqTests = []reqTest{
 		&Request{
 			Method: "CONNECT",
 			URL: &url.URL{
-				Path:    "/_goRPC_",
-				RawPath: "/_goRPC_",
+				Path: "/_goRPC_",
 			},
 			Proto:         "HTTP/1.1",
 			ProtoMajor:    1,
@@ -308,8 +334,7 @@ var reqTests = []reqTest{
 		&Request{
 			Method: "GET",
 			URL: &url.URL{
-				Path:    "/",
-				RawPath: "/",
+				Path: "/",
 			},
 			Header: Header{
 				// This wasn't removed from Go 1.0 to
@@ -325,6 +350,53 @@ var reqTests = []reqTest{
 			RequestURI: "/",
 		},
 
+		noBody,
+		noTrailer,
+		noError,
+	},
+
+	// HEAD with Content-Length 0. Make sure this is permitted,
+	// since I think we used to send it.
+	{
+		"HEAD / HTTP/1.1\r\nHost: issue8261.com\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+		&Request{
+			Method: "HEAD",
+			URL: &url.URL{
+				Path: "/",
+			},
+			Header: Header{
+				"Connection":     []string{"close"},
+				"Content-Length": []string{"0"},
+			},
+			Host:       "issue8261.com",
+			Proto:      "HTTP/1.1",
+			ProtoMajor: 1,
+			ProtoMinor: 1,
+			Close:      true,
+			RequestURI: "/",
+		},
+
+		noBody,
+		noTrailer,
+		noError,
+	},
+
+	// http2 client preface:
+	{
+		"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n",
+		&Request{
+			Method: "PRI",
+			URL: &url.URL{
+				Path: "*",
+			},
+			Header:        Header{},
+			Proto:         "HTTP/2.0",
+			ProtoMajor:    2,
+			ProtoMinor:    0,
+			RequestURI:    "*",
+			ContentLength: -1,
+			Close:         true,
+		},
 		noBody,
 		noTrailer,
 		noError,
@@ -359,6 +431,37 @@ func TestReadRequest(t *testing.T) {
 		}
 		if !reflect.DeepEqual(tt.Trailer, req.Trailer) {
 			t.Errorf("%s: Trailers differ.\n got: %v\nwant: %v", testName, req.Trailer, tt.Trailer)
+		}
+	}
+}
+
+// reqBytes treats req as a request (with \n delimiters) and returns it with \r\n delimiters,
+// ending in \r\n\r\n
+func reqBytes(req string) []byte {
+	return []byte(strings.Replace(strings.TrimSpace(req), "\n", "\r\n", -1) + "\r\n\r\n")
+}
+
+var badRequestTests = []struct {
+	name string
+	req  []byte
+}{
+	{"bad_connect_host", reqBytes("CONNECT []%20%48%54%54%50%2f%31%2e%31%0a%4d%79%48%65%61%64%65%72%3a%20%31%32%33%0a%0a HTTP/1.0")},
+	{"smuggle_two_contentlen", reqBytes(`POST / HTTP/1.1
+Content-Length: 3
+Content-Length: 4
+
+abc`)},
+	{"smuggle_content_len_head", reqBytes(`HEAD / HTTP/1.1
+Host: foo
+Content-Length: 5`)},
+}
+
+func TestReadRequest_Bad(t *testing.T) {
+	for _, tt := range badRequestTests {
+		got, err := ReadRequest(bufio.NewReader(bytes.NewReader(tt.req)))
+		if err == nil {
+			all, err := ioutil.ReadAll(got.Body)
+			t.Errorf("%s: got unexpected request = %#v\n  Body = %q, %v", tt.name, got, all, err)
 		}
 	}
 }

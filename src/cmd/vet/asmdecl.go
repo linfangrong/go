@@ -1,4 +1,4 @@
-// Copyright 2013 The Go Authors.  All rights reserved.
+// Copyright 2013 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -58,13 +58,15 @@ type asmVar struct {
 }
 
 var (
-	asmArch386       = asmArch{"386", 4, 4, 4, false, "SP", false}
-	asmArchArm       = asmArch{"arm", 4, 4, 4, false, "R13", true}
-	asmArchArm64     = asmArch{"arm64", 8, 8, 8, false, "RSP", true}
-	asmArchAmd64     = asmArch{"amd64", 8, 8, 8, false, "SP", false}
-	asmArchAmd64p32  = asmArch{"amd64p32", 4, 4, 8, false, "SP", false}
-	asmArchPower64   = asmArch{"power64", 8, 8, 8, true, "R1", true}
-	asmArchPower64LE = asmArch{"power64le", 8, 8, 8, false, "R1", true}
+	asmArch386      = asmArch{"386", 4, 4, 4, false, "SP", false}
+	asmArchArm      = asmArch{"arm", 4, 4, 4, false, "R13", true}
+	asmArchArm64    = asmArch{"arm64", 8, 8, 8, false, "RSP", true}
+	asmArchAmd64    = asmArch{"amd64", 8, 8, 8, false, "SP", false}
+	asmArchAmd64p32 = asmArch{"amd64p32", 4, 4, 8, false, "SP", false}
+	asmArchMips64   = asmArch{"mips64", 8, 8, 8, true, "R29", true}
+	asmArchMips64LE = asmArch{"mips64", 8, 8, 8, false, "R29", true}
+	asmArchPpc64    = asmArch{"ppc64", 8, 8, 8, true, "R1", true}
+	asmArchPpc64LE  = asmArch{"ppc64le", 8, 8, 8, false, "R1", true}
 
 	arches = []*asmArch{
 		&asmArch386,
@@ -72,8 +74,10 @@ var (
 		&asmArchArm64,
 		&asmArchAmd64,
 		&asmArchAmd64p32,
-		&asmArchPower64,
-		&asmArchPower64LE,
+		&asmArchMips64,
+		&asmArchMips64LE,
+		&asmArchPpc64,
+		&asmArchPpc64LE,
 	}
 )
 
@@ -86,7 +90,7 @@ var (
 	asmUnnamedFP = re(`[^+\-0-9](([0-9]+)\(FP\))`)
 	asmSP        = re(`[^+\-0-9](([0-9]+)\(([A-Z0-9]+)\))`)
 	asmOpcode    = re(`^\s*(?:[A-Z0-9a-z_]+:)?\s*([A-Z]+)\s*([^,]*)(?:,\s*(.*))?`)
-	power64Suff  = re(`([BHWD])(ZU|Z|U|BR)?$`)
+	ppc64Suff    = re(`([BHWD])(ZU|Z|U|BR)?$`)
 )
 
 func asmCheck(pkg *Package) {
@@ -559,6 +563,11 @@ func asmCheckVar(badf func(string, ...interface{}), fn *asmFunc, line, expr stri
 				src = 8
 				break
 			}
+			if strings.HasPrefix(op, "P") && strings.HasSuffix(op, "RD") {
+				// PINSRD, PEXTRD, etc
+				src = 4
+				break
+			}
 			if strings.HasPrefix(op, "F") && (strings.HasSuffix(op, "F") || strings.HasSuffix(op, "FP")) {
 				// FMOVFP, FXCHF, etc
 				src = 4
@@ -589,9 +598,9 @@ func asmCheckVar(badf func(string, ...interface{}), fn *asmFunc, line, expr stri
 			case 'D', 'Q':
 				src = 8
 			}
-		case "power64", "power64le":
+		case "ppc64", "ppc64le":
 			// Strip standard suffixes to reveal size letter.
-			m := power64Suff.FindStringSubmatch(op)
+			m := ppc64Suff.FindStringSubmatch(op)
 			if m != nil {
 				switch m[1][0] {
 				case 'B':
@@ -603,6 +612,17 @@ func asmCheckVar(badf func(string, ...interface{}), fn *asmFunc, line, expr stri
 				case 'D':
 					src = 8
 				}
+			}
+		case "mips64", "mips64le":
+			switch op {
+			case "MOVB", "MOVBU":
+				src = 1
+			case "MOVH", "MOVHU":
+				src = 2
+			case "MOVW", "MOVWU", "MOVF":
+				src = 4
+			case "MOVV", "MOVD":
+				src = 8
 			}
 		}
 	}

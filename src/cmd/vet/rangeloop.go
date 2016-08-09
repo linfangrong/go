@@ -16,7 +16,7 @@ For example:
 		}()
 	}
 
-See: http://golang.org/doc/go_faq.html#closures_and_goroutines
+See: https://golang.org/doc/go_faq.html#closures_and_goroutines
 */
 
 package main
@@ -60,6 +60,10 @@ func checkRangeLoop(f *File, node ast.Node) {
 	ast.Inspect(lit.Body, func(n ast.Node) bool {
 		id, ok := n.(*ast.Ident)
 		if !ok || id.Obj == nil {
+			return true
+		}
+		if f.pkg.types[id].Type == nil {
+			// Not referring to a variable
 			return true
 		}
 		if key != nil && id.Obj == key.Obj || val != nil && id.Obj == val.Obj {
